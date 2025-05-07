@@ -1,0 +1,77 @@
+---
+- name: Install Kubernetes tools reliably
+  hosts: localhost
+  vars:
+    kubectl_version: "1.29.0"  # Pin to specific version
+    kops_version: "1.29.0"     # Pin to specific version
+    install_dir: "/usr/local/bin"
+    ssh_key_path: "/home/ec2-user/.ssh/id_rsa"
+
+  tasks:
+    - name: Create installation directory
+      file:
+        path: "{{ install_dir }}"
+        state: directory
+        mode: '0755'
+      become: yes
+
+    # Install kubectl directly from Kubernetes release
+    - name: Download kubectl binary
+      get_url:
+        url: "https://dl.k8s.io/release/v{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        dest: "{{ install_dir }}/kubectl"
+        mode: '0755'
+        timeout: 30
+        validate_certs: no  # Disable if behind corporate proxy
+      register: download_kubectl
+      retries: 3
+      delay: 10
+      until: download_kubectl is succeeded
+      become: yes
+
+    - name: Verify kubectl installation
+      command: "{{ install_dir }}/kubectl version --client"
+      register: kubectl_check
+      changed_when: false
+
+    # Install kops directly from GitHub releases
+    - name: Download kops binary
+      get_url:
+        url: "https://github.com/kubernetes/kops/releases/download/v{{ kops_version }}/kops-linux-amd64"
+        dest: "{{ install_dir }}/kops"
+        mode: '0755'
+        timeout: 30
+      register: download_kops
+      retries: 3
+      delay: 10
+      until: download_kops is succeeded
+      become: yes
+
+    - name: Verify kops installation
+      command: "{{ install_dir }}/kops version"
+      register: kops_check
+      changed_when: false
+
+    # Generate SSH key
+    - name: Ensure SSH directory exists
+      file:
+        path: "/home/ec2-user/.ssh"
+        state: directory
+        mode: '0700'
+      become: yes
+
+    - name: Generate SSH key pair
+      openssh_keypair:
+        path: "{{ ssh_key_path }}"
+        type: rsa
+        size: 4096
+        state: present
+      become: yes
+
+    - name: Show installation results
+      debug:
+        msg: |
+          kubectl: {{ kubectl_check.stdout_lines | default('Installation failed') }}
+          kops: {{ kops_check.stdout_lines | default('Installation failed') }}
+          SSH key: {{ ssh_key_path }}
+...
